@@ -6,7 +6,6 @@ import { calculateGuesserScore, calculateDrawerBonus } from './lib/scoring';
 import {
   createGameRoom,
   joinGameRoom,
-  leaveGameRoom,
   verifyGuess,
   saveLocalRoom,
   saveLocalPlayers,
@@ -227,19 +226,6 @@ export const App: React.FC = () => {
     const interval = setInterval(syncState, 2000);
     return () => clearInterval(interval);
   }, [room?.id]);
-
-  // Handle player unload/disconnect cleanly
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      if (roomRef.current && playerId) {
-        leaveGameRoom(roomRef.current, playerId);
-      }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [playerId]);
 
   // Cleanup Channel on Unmount
   useEffect(() => {

@@ -218,7 +218,8 @@ export async function joinGameRoom(
     const { data: updatedDbPlayers } = await supabase
       .from('players')
       .select('*')
-      .eq('room_id', dbRoom.id);
+      .eq('room_id', dbRoom.id)
+      .order('joined_at', { ascending: true });
 
     players = (updatedDbPlayers || []).map((p) => ({
       id: p.id,
