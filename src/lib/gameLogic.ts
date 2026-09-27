@@ -203,8 +203,9 @@ export async function joinGameRoom(
   } else {
     room = getLocalRoom(formattedCode);
     if (!room) {
-      throw new Error('This room code does not exist. Please check the code and try again.');
+      throw new Error('Room not found! You are currently in "Local Tab Mode". To join rooms across different devices/phones over the internet, please set your Supabase environment variables on Vercel!');
     }
+
     if (room.status === 'ENDED') {
       throw new Error('This game has already ended.');
     }
