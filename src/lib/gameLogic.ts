@@ -200,7 +200,7 @@ export async function joinGameRoom(
       name: p.name,
       avatar: p.avatar,
       score: p.score,
-      isHost: p.is_host,
+      isHost: p.id === dbRoom.host_player_id,
       isConnected: p.is_connected,
       hasGuessedCorrect: p.has_guessed_correct || false,
       joinedAt: new Date(p.joined_at).getTime(),
@@ -225,7 +225,7 @@ export async function joinGameRoom(
   let player: Player;
 
   if (existingPlayer) {
-    player = { ...existingPlayer, name: playerName, avatar, isConnected: true };
+    player = { ...existingPlayer, name: playerName, avatar, isConnected: true, isHost: existingPlayer.id === room.hostPlayerId };
     players = players.map((p) => (p.id === playerId ? player : p));
   } else {
     player = {
@@ -234,7 +234,7 @@ export async function joinGameRoom(
       name: playerName,
       avatar,
       score: 0,
-      isHost: players.length === 0,
+      isHost: playerId === room.hostPlayerId,
       isConnected: true,
       hasGuessedCorrect: false,
       joinedAt: Date.now(),
@@ -242,11 +242,22 @@ export async function joinGameRoom(
     players.push(player);
   }
 
-  // If room had no host, assign host
-  if (!players.some((p) => p.isHost)) {
-    player.isHost = true;
-    room.hostPlayerId = player.id;
+  // If room has no active host (e.g. host left or original host record was missing), reassign host to first active player!
+  if (!players.some((p) => p.id === room.hostPlayerId)) {
+    if (players.length > 0) {
+      room.hostPlayerId = players[0].id;
+      if (isSupabaseConfigured() && supabase) {
+        await supabase.from('rooms').update({ host_player_id: room.hostPlayerId }).eq('id', room.id);
+      }
+    }
   }
+
+  // Ensure isHost on all player objects is strictly derived from room.hostPlayerId
+  players = players.map((p) => ({
+    ...p,
+    isHost: p.id === room.hostPlayerId,
+  }));
+  player.isHost = player.id === room.hostPlayerId;
 
   // Update DB or LocalStorage
   if (isSupabaseConfigured() && supabase) {
@@ -279,7 +290,7 @@ export async function verifyGuess(guessText: string, wordHash: string | null): P
   return hash === wordHash;
 }
 
-export async function fetchCloudPlayers(roomId: string): Promise<Player[]> {
+export async function fetchCloudPlayers(roomId: string, hostPlayerId?: string): Promise<Player[]> {
   if (!isSupabaseConfigured() || !supabase) return [];
   const { data, error } = await supabase
     .from('players')
@@ -292,7 +303,7 @@ export async function fetchCloudPlayers(roomId: string): Promise<Player[]> {
     name: p.name,
     avatar: p.avatar,
     score: p.score,
-    isHost: p.is_host,
+    isHost: hostPlayerId ? p.id === hostPlayerId : p.is_host,
     isConnected: p.is_connected,
     hasGuessedCorrect: p.has_guessed_correct || false,
     joinedAt: new Date(p.joined_at).getTime(),

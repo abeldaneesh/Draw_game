@@ -95,7 +95,7 @@ export const App: React.FC = () => {
     // Cloud Database Change Event
     ch.on('cloud_db_change', async () => {
       if (roomRef.current) {
-        const cloudPlayers = await fetchCloudPlayers(roomRef.current.id);
+        const cloudPlayers = await fetchCloudPlayers(roomRef.current.id, roomRef.current.hostPlayerId);
         if (cloudPlayers.length > 0) {
           setPlayers((prev) => {
             const prevKey = prev.map((p) => p.id).sort().join(',');
@@ -166,7 +166,7 @@ export const App: React.FC = () => {
     const syncState = async () => {
       if (!room.id) return;
 
-      const cloudPlayers = await fetchCloudPlayers(room.id);
+      const cloudPlayers = await fetchCloudPlayers(room.id, room.hostPlayerId);
       if (cloudPlayers.length > 0) {
         setPlayers((prev) => {
           const prevKey = prev.map((p) => p.id).sort().join(',');
