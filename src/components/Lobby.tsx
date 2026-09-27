@@ -83,22 +83,24 @@ export const Lobby: React.FC<LobbyProps> = ({
             <AudioToggle />
 
             {/* Copy Invite Link */}
-            <button
-              onClick={handleCopyLink}
-              className="retro-btn text-xs px-4 py-2 flex items-center gap-2"
-            >
-              {copied ? (
-                <>
-                  <Check className="w-4 h-4 text-emerald-300" />
-                  <span>Link Copied!</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-4 h-4" />
-                  <span>Copy Invite Link</span>
-                </>
-              )}
-            </button>
+            <div className="flex flex-col items-end">
+              <button
+                onClick={handleCopyLink}
+                className="retro-btn text-xs px-4 py-2 flex items-center gap-2"
+              >
+                {copied ? (
+                  <>
+                    <Check className="w-4 h-4 text-emerald-300" />
+                    <span>Link Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4" />
+                    <span>Copy Invite Link</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
 

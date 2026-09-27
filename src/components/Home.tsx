@@ -123,6 +123,19 @@ export const Home: React.FC<HomeProps> = ({
 
         {/* Parchment Setup Card */}
         <div className="retro-card p-6 space-y-5">
+          {!isSupabaseConfigured() && (
+            <div className="p-3 bg-[#FFF6DF] border-2 border-[#E5A93C] rounded-xl text-xs text-[#2B2520] font-typewriter flex items-start gap-2.5">
+              <span className="text-base leading-none">⚠️</span>
+              <div>
+                <p className="font-bold font-retro-heading text-[#2B2520] uppercase text-[11px]">
+                  Local Tab Mode Active
+                </p>
+                <p className="text-[11px] text-[#5C5247] mt-0.5">
+                  Rooms work between browser tabs on this device. For cross-device play across the internet, click <strong>"Local Tab Mode"</strong> above to enter your Supabase keys!
+                </p>
+              </div>
+            </div>
+          )}
           {/* Avatar Picker */}
           <div>
             <label className="block text-xs font-bold text-[#2B2520] uppercase tracking-wider mb-2 font-retro-heading">
