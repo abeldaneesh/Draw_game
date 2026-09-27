@@ -200,12 +200,24 @@ export async function joinGameRoom(
     const existingInDb = activePlayers.find((p) => p.id === playerId);
     const isPlayerHost = playerId === dbRoom.host_player_id;
 
+    const joiningPlayer: Player = {
+      id: playerId,
+      roomId: dbRoom.id,
+      name: playerName,
+      avatar: avatar,
+      score: existingInDb ? existingInDb.score : 0,
+      isHost: isPlayerHost,
+      isConnected: true,
+      hasGuessedCorrect: false,
+      joinedAt: existingInDb && existingInDb.joined_at ? new Date(existingInDb.joined_at).getTime() : Date.now(),
+    };
+
     const { error: playerUpsertErr } = await supabase.from('players').upsert({
       id: playerId,
       room_id: dbRoom.id,
       name: playerName,
       avatar: avatar,
-      score: existingInDb ? existingInDb.score : 0,
+      score: joiningPlayer.score,
       is_host: isPlayerHost,
       is_connected: true,
     });
@@ -221,7 +233,7 @@ export async function joinGameRoom(
       .eq('room_id', dbRoom.id)
       .order('joined_at', { ascending: true });
 
-    players = (updatedDbPlayers || []).map((p) => ({
+    let fetchedPlayers = (updatedDbPlayers || []).map((p) => ({
       id: p.id,
       roomId: p.room_id,
       name: p.name,
@@ -230,8 +242,13 @@ export async function joinGameRoom(
       isHost: p.id === dbRoom.host_player_id,
       isConnected: p.is_connected,
       hasGuessedCorrect: p.has_guessed_correct || false,
-      joinedAt: new Date(p.joined_at).getTime(),
+      joinedAt: p.joined_at ? new Date(p.joined_at).getTime() : Date.now(),
     }));
+
+    if (!fetchedPlayers.some((p) => p.id === playerId)) {
+      fetchedPlayers.push(joiningPlayer);
+    }
+    players = fetchedPlayers;
   } else {
     room = getLocalRoom(formattedCode);
     if (!room) {

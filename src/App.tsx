@@ -120,14 +120,13 @@ export const App: React.FC = () => {
         const cloudPlayers = await fetchCloudPlayers(roomRef.current.id, hostId);
 
         if (cloudPlayers.length > 0) {
+          const freshPlayers = cloudPlayers.map((p) => ({
+            ...p,
+            isHost: p.id === hostId,
+          }));
           setPlayers((prev) => {
-            const prevKey = prev.map((p) => `${p.id}:${p.score}:${p.isConnected}`).sort().join(',');
-            const nextKey = cloudPlayers.map((p) => `${p.id}:${p.score}:${p.isConnected}`).sort().join(',');
-            if (prevKey !== nextKey) {
-              if (cloudPlayers.length > prev.length) soundManager.playJoinSound();
-              return cloudPlayers;
-            }
-            return prev;
+            if (freshPlayers.length > prev.length) soundManager.playJoinSound();
+            return freshPlayers;
           });
         }
         if (cloudRoom) {
@@ -196,14 +195,13 @@ export const App: React.FC = () => {
       const cloudPlayers = await fetchCloudPlayers(room.id, hostId);
 
       if (cloudPlayers.length > 0) {
+        const freshPlayers = cloudPlayers.map((p) => ({
+          ...p,
+          isHost: p.id === hostId,
+        }));
         setPlayers((prev) => {
-          const prevKey = prev.map((p) => p.id).sort().join(',');
-          const nextKey = cloudPlayers.map((p) => p.id).sort().join(',');
-          if (prevKey !== nextKey) {
-            if (cloudPlayers.length > prev.length) soundManager.playJoinSound();
-            return cloudPlayers;
-          }
-          return prev;
+          if (freshPlayers.length > prev.length) soundManager.playJoinSound();
+          return freshPlayers;
         });
       }
 
