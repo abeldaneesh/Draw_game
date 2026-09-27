@@ -83,8 +83,6 @@ CREATE POLICY "Allow all on rooms" ON public.rooms FOR ALL USING (true) WITH CHE
 CREATE POLICY "Allow all on players" ON public.players FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all on guesses" ON public.guesses FOR ALL USING (true) WITH CHECK (true);
 
--- REALTIME PUBLICATION SETUP
--- Enable replication for realtime subscriptions
-ALTER PUBLICATION supabase_realtime ADD TABLE public.rooms;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.players;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.guesses;
+-- REALTIME PUBLICATION SETUP (Safe re-execution)
+ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS public.rooms, public.players, public.guesses;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.rooms, public.players, public.guesses;
