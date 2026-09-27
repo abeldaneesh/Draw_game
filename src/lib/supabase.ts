@@ -19,10 +19,12 @@ if (customUrl) supabaseUrl = cleanSupabaseUrl(customUrl);
 if (customKey) supabaseAnonKey = customKey.trim();
 
 export function isSupabaseConfigured(): boolean {
-  const isConfigured = 
+  const isConfigured =
     Boolean(supabaseUrl) &&
     Boolean(supabaseAnonKey) &&
     supabaseUrl.startsWith('http') &&
+    !supabaseUrl.includes('localhost') &&
+    !supabaseUrl.includes('127.0.0.1') &&
     supabaseAnonKey.length > 10;
 
   return isConfigured;
@@ -57,8 +59,16 @@ export const supabase: SupabaseClient | null = isSupabaseConfigured()
   : null;
 
 export async function testSupabaseConnection(): Promise<{ success: boolean; message: string }> {
+  const rawUrl = localStorage.getItem('drawrush_supabase_url') || import.meta.env.VITE_SUPABASE_URL || '';
+  if (rawUrl.includes('localhost') || rawUrl.includes('127.0.0.1')) {
+    return {
+      success: false,
+      message: 'Invalid Supabase URL! You entered your local website URL ("localhost:5173") instead of your Supabase Cloud URL (e.g. "https://xxxx.supabase.co").',
+    };
+  }
+
   if (!isSupabaseConfigured() || !supabase) {
-    return { success: false, message: 'Supabase URL or Anon Key is not configured.' };
+    return { success: false, message: 'Supabase URL or Anon Key is not configured correctly.' };
   }
 
   try {

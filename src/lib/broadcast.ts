@@ -11,10 +11,26 @@ export class MultiplayerChannel {
 
   private isSubscribed: boolean = false;
   private pendingQueue: Array<{ eventName: string; data: any }> = [];
+  private pendingPresence: any = null;
 
   constructor(roomCode: string) {
     this.roomCode = roomCode;
 
+    // 1. Setup Local Tab Sync BroadcastChannel (always active for instant local tab sync)
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        this.localBroadcastChannel = new BroadcastChannel(`drawrush_${roomCode}`);
+        this.localBroadcastChannel.onmessage = (event) => {
+          if (event.data && event.data.eventName) {
+            this.trigger(event.data.eventName, event.data.data);
+          }
+        };
+      } catch (err) {
+        console.warn('[BroadcastChannel] Initialization failed:', err);
+      }
+    }
+
+    // 2. Setup Supabase Realtime Channel
     if (isSupabaseConfigured() && supabase) {
       this.supabaseChannel = supabase.channel(`room:${roomCode}`, {
         config: {
@@ -28,6 +44,9 @@ export class MultiplayerChannel {
           const eventName = payload.event;
           const data = payload.payload;
           this.trigger(eventName, data);
+        })
+        .on('presence', { event: 'sync' }, () => {
+          this.trigger('cloud_db_change', { type: 'presence' });
         })
         .on(
           'postgres_changes',
@@ -43,14 +62,20 @@ export class MultiplayerChannel {
             this.trigger('cloud_db_change', { type: 'rooms' });
           }
         )
-        .subscribe((status) => {
+        .subscribe(async (status) => {
           if (status === 'SUBSCRIBED') {
             this.isSubscribed = true;
-            // Flush queued messages
+
+            // Track presence if requested before subscription
+            if (this.pendingPresence) {
+              await this.supabaseChannel?.track(this.pendingPresence);
+            }
+
+            // Flush queued messages sequentially
             while (this.pendingQueue.length > 0) {
               const msg = this.pendingQueue.shift();
               if (msg) {
-                this.supabaseChannel?.send({
+                await this.supabaseChannel?.send({
                   type: 'broadcast',
                   event: msg.eventName,
                   payload: msg.data,
@@ -59,16 +84,15 @@ export class MultiplayerChannel {
             }
           }
         });
-    } else {
-      // Local Tab Sync Fallback using BroadcastChannel API
-      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-        this.localBroadcastChannel = new BroadcastChannel(`drawrush_${roomCode}`);
-        this.localBroadcastChannel.onmessage = (event) => {
-          if (event.data && event.data.eventName) {
-            this.trigger(event.data.eventName, event.data.data);
-          }
-        };
-      }
+    }
+  }
+
+  public trackPresence(playerData: any) {
+    this.pendingPresence = playerData;
+    if (this.supabaseChannel && this.isSubscribed) {
+      this.supabaseChannel.track(playerData).catch((err) => {
+        console.error('[MultiplayerChannel] Presence track error:', err);
+      });
     }
   }
 
@@ -89,26 +113,34 @@ export class MultiplayerChannel {
     }
   }
 
-  public send(eventName: string, data: any) {
+  public async send(eventName: string, data: any) {
     // 1. Supabase broadcast
     if (this.supabaseChannel) {
       if (this.isSubscribed) {
-        this.supabaseChannel.send({
-          type: 'broadcast',
-          event: eventName,
-          payload: data,
-        });
+        try {
+          await this.supabaseChannel.send({
+            type: 'broadcast',
+            event: eventName,
+            payload: data,
+          });
+        } catch (err) {
+          console.error('[MultiplayerChannel] Broadcast send error:', err);
+        }
       } else {
         this.pendingQueue.push({ eventName, data });
       }
     }
 
-    // 2. BroadcastChannel
+    // 2. BroadcastChannel (local tabs fallback)
     if (this.localBroadcastChannel) {
-      this.localBroadcastChannel.postMessage({
-        eventName,
-        data,
-      });
+      try {
+        this.localBroadcastChannel.postMessage({
+          eventName,
+          data,
+        });
+      } catch (err) {
+        console.warn('[BroadcastChannel] PostMessage failed:', err);
+      }
     }
   }
 

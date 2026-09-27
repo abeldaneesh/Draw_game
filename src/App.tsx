@@ -9,6 +9,8 @@ import {
   verifyGuess,
   saveLocalRoom,
   saveLocalPlayers,
+  getLocalRoom,
+  getLocalPlayers,
   fetchCloudPlayers,
   fetchCloudRoom,
   updateCloudRoom,
@@ -72,158 +74,188 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  // 2. Setup Broadcast Channel Subscription for Room
-  const setupChannel = useCallback((roomCode: string) => {
-    if (channel) channel.close();
+  // Comprehensive State Sync Function (works for both Supabase & Local Mode)
+  const syncState = useCallback(async () => {
+    const currentRoom = roomRef.current;
+    if (!currentRoom) return;
 
-    const ch = new MultiplayerChannel(roomCode);
+    let freshRoom: RoomState | null = null;
+    let freshPlayers: Player[] = [];
 
-    // Sync Room State
-    ch.on('room_state_update', (newRoom: RoomState) => {
-      setRoom(newRoom);
-      roomRef.current = newRoom;
-    });
+    if (isSupabaseConfigured()) {
+      freshRoom = await fetchCloudRoom(currentRoom.id);
+      const hostId = freshRoom ? freshRoom.hostPlayerId : currentRoom.hostPlayerId;
+      freshPlayers = await fetchCloudPlayers(currentRoom.id, hostId);
+    } else {
+      freshRoom = getLocalRoom(currentRoom.roomCode);
+      freshPlayers = getLocalPlayers(currentRoom.roomCode);
+    }
 
-    // Sync Players List
-    ch.on('players_update', (newPlayers: Player[]) => {
-      if (newPlayers && Array.isArray(newPlayers)) {
-        setPlayers((prev) => {
-          if (newPlayers.length > prev.length) soundManager.playJoinSound();
-          return newPlayers;
-        });
-      }
-    });
+    if (freshPlayers && freshPlayers.length > 0) {
+      setPlayers((prev) => {
+        const prevSig = prev.map((p) => `${p.id}:${p.isHost}:${p.score}:${p.name}`).join('|');
+        const nextSig = freshPlayers.map((p) => `${p.id}:${p.isHost}:${p.score}:${p.name}`).join('|');
 
-    // Player Joined Event
-    ch.on('player_joined', ({ players: updatedPlayers }) => {
-      if (updatedPlayers && Array.isArray(updatedPlayers)) {
-        setPlayers((prev) => {
-          if (updatedPlayers.length > prev.length) soundManager.playJoinSound();
-          return updatedPlayers;
-        });
-      }
-    });
-
-    // Host Transferred Event
-    ch.on('host_transferred', ({ newHostId, players: updatedPlayers }) => {
-      setRoom((prev) => (prev ? { ...prev, hostPlayerId: newHostId } : null));
-      if (updatedPlayers && Array.isArray(updatedPlayers)) {
-        setPlayers(updatedPlayers);
-      }
-    });
-
-    // Cloud Database Change Event
-    ch.on('cloud_db_change', async () => {
-      if (roomRef.current) {
-        const cloudRoom = await fetchCloudRoom(roomRef.current.id);
-        const hostId = cloudRoom ? cloudRoom.hostPlayerId : roomRef.current.hostPlayerId;
-        const cloudPlayers = await fetchCloudPlayers(roomRef.current.id, hostId);
-
-        if (cloudPlayers.length > 0) {
-          const freshPlayers = cloudPlayers.map((p) => ({
-            ...p,
-            isHost: p.id === hostId,
-          }));
-          setPlayers((prev) => {
-            if (freshPlayers.length > prev.length) soundManager.playJoinSound();
-            return freshPlayers;
-          });
-        }
-        if (cloudRoom) {
-          setRoom(cloudRoom);
-          roomRef.current = cloudRoom;
-        }
-      }
-    });
-
-    // Sync Chat Messages
-    ch.on('chat_message', (msg: GuessMessage) => {
-      setMessages((prev) => [...prev, msg]);
-      if (msg.isCorrect) {
-        soundManager.playCorrectGuessSound();
-      }
-    });
-
-    // Drawer Chosen Secret Word Prompt
-    ch.on('drawer_word_chosen', ({ wordLength, wordCategory, turnEndsAt }) => {
-      setRoom((prev) =>
-        prev
-          ? {
-              ...prev,
-              wordLength,
-              wordCategory,
-              turnEndsAt,
-              turnStartedAt: Date.now(),
-            }
-          : null
-      );
-      setIsChoosingWord(false);
-    });
-
-    // Turn Recap Trigger
-    ch.on('turn_ended', ({ secretWord }) => {
-      setRecapSecretWord(secretWord);
-      setIsTurnRecap(true);
-      soundManager.playTurnEndSound();
-
-      setTimeout(() => {
-        setIsTurnRecap(false);
-      }, 4000);
-    });
-
-    // Player Kicked Notice
-    ch.on('player_kicked', ({ kickedPlayerId }) => {
-      if (kickedPlayerId === playerId) {
-        alert('You were removed from the room by the host.');
-        window.location.reload();
-      }
-    });
-
-    setChannel(ch);
-    return ch;
-  }, [playerId]);
-
-  // Periodic Cloud Sync Polling while inside a room
-  useEffect(() => {
-    if (!room || !isSupabaseConfigured()) return;
-
-    const syncState = async () => {
-      if (!room.id) return;
-
-      const cloudRoom = await fetchCloudRoom(room.id);
-      const hostId = cloudRoom ? cloudRoom.hostPlayerId : room.hostPlayerId;
-      const cloudPlayers = await fetchCloudPlayers(room.id, hostId);
-
-      if (cloudPlayers.length > 0) {
-        const freshPlayers = cloudPlayers.map((p) => ({
-          ...p,
-          isHost: p.id === hostId,
-        }));
-        setPlayers((prev) => {
-          if (freshPlayers.length > prev.length) soundManager.playJoinSound();
-          return freshPlayers;
-        });
-      }
-
-      if (cloudRoom) {
-        setRoom((prev) => {
-          if (!prev) return cloudRoom;
-          if (
-            prev.status !== cloudRoom.status ||
-            prev.currentDrawerId !== cloudRoom.currentDrawerId ||
-            prev.currentRound !== cloudRoom.currentRound ||
-            prev.hostPlayerId !== cloudRoom.hostPlayerId
-          ) {
-            return cloudRoom;
+        if (prevSig !== nextSig) {
+          if (freshPlayers.length > prev.length) {
+            soundManager.playJoinSound();
           }
-          return prev;
+          playersRef.current = freshPlayers;
+          return freshPlayers;
+        }
+        return prev;
+      });
+    }
+
+    if (freshRoom) {
+      setRoom((prev) => {
+        if (!prev) return freshRoom;
+        if (
+          prev.status !== freshRoom.status ||
+          prev.currentDrawerId !== freshRoom.currentDrawerId ||
+          prev.currentRound !== freshRoom.currentRound ||
+          prev.hostPlayerId !== freshRoom.hostPlayerId ||
+          prev.rounds !== freshRoom.rounds ||
+          prev.turnDuration !== freshRoom.turnDuration ||
+          prev.difficulty !== freshRoom.difficulty
+        ) {
+          roomRef.current = freshRoom;
+          return freshRoom;
+        }
+        return prev;
+      });
+    }
+  }, []);
+
+  // 2. Setup Broadcast Channel Subscription for Room
+  const setupChannel = useCallback(
+    (roomCode: string, playerObj?: Player) => {
+      if (channel) channel.close();
+
+      const ch = new MultiplayerChannel(roomCode);
+
+      if (playerObj) {
+        ch.trackPresence({
+          id: playerObj.id,
+          name: playerObj.name,
+          avatar: playerObj.avatar,
+          isHost: playerObj.isHost,
         });
+      }
+
+      // Sync Room State
+      ch.on('room_state_update', (newRoom: RoomState) => {
+        setRoom(newRoom);
+        roomRef.current = newRoom;
+      });
+
+      // Sync Players List
+      ch.on('players_update', (newPlayers: Player[]) => {
+        if (newPlayers && Array.isArray(newPlayers) && newPlayers.length > 0) {
+          setPlayers((prev) => {
+            if (newPlayers.length > prev.length) soundManager.playJoinSound();
+            return newPlayers;
+          });
+          playersRef.current = newPlayers;
+        }
+      });
+
+      // Player Joined Event
+      ch.on('player_joined', ({ players: updatedPlayers }) => {
+        if (updatedPlayers && Array.isArray(updatedPlayers)) {
+          setPlayers((prev) => {
+            if (updatedPlayers.length > prev.length) soundManager.playJoinSound();
+            return updatedPlayers;
+          });
+          playersRef.current = updatedPlayers;
+        }
+        syncState();
+      });
+
+      // Host Transferred Event
+      ch.on('host_transferred', ({ newHostId, players: updatedPlayers }) => {
+        setRoom((prev) => (prev ? { ...prev, hostPlayerId: newHostId } : null));
+        if (updatedPlayers && Array.isArray(updatedPlayers)) {
+          setPlayers(updatedPlayers);
+          playersRef.current = updatedPlayers;
+        }
+      });
+
+      // Cloud Database / Presence Change Event
+      ch.on('cloud_db_change', async () => {
+        syncState();
+      });
+
+      // Sync Chat Messages
+      ch.on('chat_message', (msg: GuessMessage) => {
+        setMessages((prev) => [...prev, msg]);
+        if (msg.isCorrect) {
+          soundManager.playCorrectGuessSound();
+        }
+      });
+
+      // Drawer Chosen Secret Word Prompt
+      ch.on('drawer_word_chosen', ({ wordLength, wordCategory, turnEndsAt }) => {
+        setRoom((prev) =>
+          prev
+            ? {
+                ...prev,
+                wordLength,
+                wordCategory,
+                turnEndsAt,
+                turnStartedAt: Date.now(),
+              }
+            : null
+        );
+        setIsChoosingWord(false);
+      });
+
+      // Turn Recap Trigger
+      ch.on('turn_ended', ({ secretWord }) => {
+        setRecapSecretWord(secretWord);
+        setIsTurnRecap(true);
+        soundManager.playTurnEndSound();
+
+        setTimeout(() => {
+          setIsTurnRecap(false);
+        }, 4000);
+      });
+
+      // Player Kicked Notice
+      ch.on('player_kicked', ({ kickedPlayerId }) => {
+        if (kickedPlayerId === playerId) {
+          alert('You were removed from the room by the host.');
+          window.location.reload();
+        }
+      });
+
+      setChannel(ch);
+      return ch;
+    },
+    [playerId, syncState]
+  );
+
+  // Active Periodic Polling while inside a room (every 1 second)
+  useEffect(() => {
+    if (!room) return;
+
+    syncState();
+    const interval = setInterval(syncState, 1000);
+    return () => clearInterval(interval);
+  }, [room?.id, syncState]);
+
+  // Storage Event Listener for multi-tab local sync
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (!roomRef.current) return;
+      if (e.key?.includes(roomRef.current.roomCode)) {
+        syncState();
       }
     };
 
-    const interval = setInterval(syncState, 2000);
-    return () => clearInterval(interval);
-  }, [room?.id]);
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [syncState]);
 
   // Cleanup Channel on Unmount
   useEffect(() => {
@@ -246,7 +278,7 @@ export const App: React.FC = () => {
       setCurrentPlayer(player);
       setPlayers([player]);
 
-      setupChannel(newRoom.roomCode);
+      setupChannel(newRoom.roomCode, player);
       window.location.hash = `room=${newRoom.roomCode}`;
 
     } catch (err: any) {
@@ -270,7 +302,7 @@ export const App: React.FC = () => {
       setCurrentPlayer(player);
       setPlayers(roomPlayers);
 
-      const ch = setupChannel(joinedRoom.roomCode);
+      const ch = setupChannel(joinedRoom.roomCode, player);
       ch.send('player_joined', { player, players: roomPlayers });
       ch.send('players_update', roomPlayers);
 

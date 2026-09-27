@@ -1,6 +1,6 @@
 import type { RoomState, Player, GuessMessage, RoomSettings } from '../types/game';
 
-import { generateRoomCode, hashWord } from './crypto';
+import { generateRoomCode, hashWord, generatePlayerId } from './crypto';
 import { isSupabaseConfigured, supabase } from './supabase';
 
 const ROOM_STORAGE_KEY_PREFIX = 'drawrush_room_';
@@ -109,7 +109,8 @@ export async function createGameRoom(
     } else if (dbRoom) {
       room.id = dbRoom.id;
       hostPlayer.roomId = dbRoom.id;
-      const { error: playerErr } = await supabase.from('players').insert([
+    const { error: playerErr } = await supabase.from('players').upsert(
+      [
         {
           id: hostPlayer.id,
           room_id: dbRoom.id,
@@ -119,7 +120,9 @@ export async function createGameRoom(
           is_host: true,
           is_connected: true,
         },
-      ]);
+      ],
+      { onConflict: 'id' }
+    );
       if (playerErr) {
         console.error('Failed to insert host player in Supabase:', playerErr);
         throw new Error(`Cloud Player Insertion Error: ${playerErr.message}`);
@@ -161,100 +164,127 @@ export async function joinGameRoom(
       .maybeSingle();
 
     if (error || !dbRoom) {
-      if (error && error.code === '42P01') {
-        throw new Error('Database Error: Table "public.rooms" does not exist! Please execute supabase/schema.sql in your Supabase SQL Editor.');
+      // Fallback to local storage if room was created locally
+      const localRoom = getLocalRoom(formattedCode);
+      if (!localRoom) {
+        if (error && error.code === '42P01') {
+          throw new Error('Database Error: Table "public.rooms" does not exist! Please execute supabase/schema.sql in your Supabase SQL Editor.');
+        }
+        throw new Error(`Room code "${formattedCode}" does not exist. Note: Incognito windows cannot share LocalStorage with normal tabs. To test across Incognito/devices, please click "Configure Supabase Cloud Sync"!`);
       }
-      throw new Error(`Room code "${formattedCode}" does not exist. Please check the code and try again.`);
+      room = localRoom;
+      players = getLocalPlayers(formattedCode);
+    } else {
+      if (dbRoom.status === 'ENDED') {
+        throw new Error('This game has already ended.');
+      }
+
+      // Expiration check: If room was created > 24 hours ago and is still in LOBBY, auto-expire it
+      const createdAtMs = new Date(dbRoom.created_at).getTime();
+      if (Date.now() - createdAtMs > 24 * 60 * 60 * 1000 && dbRoom.status === 'LOBBY') {
+        await supabase.from('rooms').update({ status: 'ENDED' }).eq('id', dbRoom.id);
+        throw new Error(`Room "${formattedCode}" has expired.`);
+      }
+
+      room = {
+        id: dbRoom.id,
+        roomCode: dbRoom.room_code,
+        hostPlayerId: dbRoom.host_player_id,
+        status: dbRoom.status as any,
+        maxPlayers: dbRoom.max_players,
+        rounds: dbRoom.rounds,
+        turnDuration: dbRoom.turn_duration,
+        difficulty: dbRoom.difficulty as any,
+        customWords: dbRoom.custom_words || [],
+        currentRound: dbRoom.current_round,
+        currentTurn: dbRoom.current_turn,
+        currentDrawerId: dbRoom.current_drawer_id,
+        wordHash: dbRoom.word_hash,
+        wordLength: dbRoom.word_length,
+        wordCategory: dbRoom.word_category,
+        secretWordReveal: dbRoom.secret_word_reveal,
+        turnStartedAt: dbRoom.turn_started_at ? new Date(dbRoom.turn_started_at).getTime() : null,
+        turnEndsAt: dbRoom.turn_ends_at ? new Date(dbRoom.turn_ends_at).getTime() : null,
+        createdAt: new Date(dbRoom.created_at).getTime(),
+      };
+
+      const { data: dbPlayers } = await supabase
+        .from('players')
+        .select('*')
+        .eq('room_id', dbRoom.id);
+
+      const activePlayers = dbPlayers || [];
+
+      // Safeguard: Prevent player ID collision with existing room players (e.g. cloned tab testing)
+      let finalPlayerId = playerId;
+      const existingSameIdPlayer = activePlayers.find((p) => p.id === finalPlayerId);
+      if (
+        existingSameIdPlayer &&
+        existingSameIdPlayer.name.trim().toLowerCase() !== playerName.trim().toLowerCase()
+      ) {
+        finalPlayerId = generatePlayerId();
+      }
+
+      if (activePlayers.length >= dbRoom.max_players && !activePlayers.some((p) => p.id === finalPlayerId)) {
+        throw new Error('This room is currently full (' + dbRoom.max_players + '/' + dbRoom.max_players + ').');
+      }
+
+      const existingInDb = activePlayers.find((p) => p.id === finalPlayerId);
+      const isPlayerHost = finalPlayerId === dbRoom.host_player_id;
+
+      const joiningPlayer: Player = {
+        id: finalPlayerId,
+        roomId: dbRoom.id,
+        name: playerName,
+        avatar: avatar,
+        score: existingInDb ? existingInDb.score : 0,
+        isHost: isPlayerHost,
+        isConnected: true,
+        hasGuessedCorrect: false,
+        joinedAt: existingInDb && existingInDb.joined_at ? new Date(existingInDb.joined_at).getTime() : Date.now(),
+      };
+
+      const { error: playerUpsertErr } = await supabase.from('players').upsert(
+        {
+          id: finalPlayerId,
+          room_id: dbRoom.id,
+          name: playerName,
+          avatar: avatar,
+          score: joiningPlayer.score,
+          is_host: isPlayerHost,
+          is_connected: true,
+        },
+        { onConflict: 'id' }
+      );
+
+      if (playerUpsertErr) {
+        console.error('[DrawRush] Failed to insert player in Supabase:', playerUpsertErr);
+        throw new Error(`Cloud Join Error: ${playerUpsertErr.message}. Make sure RLS policies are enabled in your Supabase SQL Editor!`);
+      }
+
+      const { data: updatedDbPlayers } = await supabase
+        .from('players')
+        .select('*')
+        .eq('room_id', dbRoom.id)
+        .order('joined_at', { ascending: true });
+
+      let fetchedPlayers = (updatedDbPlayers || []).map((p) => ({
+        id: p.id,
+        roomId: p.room_id,
+        name: p.name,
+        avatar: p.avatar,
+        score: p.score,
+        isHost: p.id === dbRoom.host_player_id,
+        isConnected: p.is_connected,
+        hasGuessedCorrect: p.has_guessed_correct || false,
+        joinedAt: p.joined_at ? new Date(p.joined_at).getTime() : Date.now(),
+      }));
+
+      if (!fetchedPlayers.some((p) => p.id === finalPlayerId)) {
+        fetchedPlayers.push(joiningPlayer);
+      }
+      players = fetchedPlayers;
     }
-
-    if (dbRoom.status === 'ENDED') {
-      throw new Error('This game has already ended.');
-    }
-
-    room = {
-      id: dbRoom.id,
-      roomCode: dbRoom.room_code,
-      hostPlayerId: dbRoom.host_player_id,
-      status: dbRoom.status as any,
-      maxPlayers: dbRoom.max_players,
-      rounds: dbRoom.rounds,
-      turnDuration: dbRoom.turn_duration,
-      difficulty: dbRoom.difficulty as any,
-      customWords: dbRoom.custom_words || [],
-      currentRound: dbRoom.current_round,
-      currentTurn: dbRoom.current_turn,
-      currentDrawerId: dbRoom.current_drawer_id,
-      wordHash: dbRoom.word_hash,
-      wordLength: dbRoom.word_length,
-      wordCategory: dbRoom.word_category,
-      secretWordReveal: dbRoom.secret_word_reveal,
-      turnStartedAt: dbRoom.turn_started_at ? new Date(dbRoom.turn_started_at).getTime() : null,
-      turnEndsAt: dbRoom.turn_ends_at ? new Date(dbRoom.turn_ends_at).getTime() : null,
-      createdAt: new Date(dbRoom.created_at).getTime(),
-    };
-
-    const { data: dbPlayers } = await supabase
-      .from('players')
-      .select('*')
-      .eq('room_id', dbRoom.id);
-
-    const activePlayers = dbPlayers || [];
-    if (activePlayers.length >= dbRoom.max_players && !activePlayers.some((p) => p.id === playerId)) {
-      throw new Error('This room is currently full (' + dbRoom.max_players + '/' + dbRoom.max_players + ').');
-    }
-
-    const existingInDb = activePlayers.find((p) => p.id === playerId);
-    const isPlayerHost = playerId === dbRoom.host_player_id;
-
-    const joiningPlayer: Player = {
-      id: playerId,
-      roomId: dbRoom.id,
-      name: playerName,
-      avatar: avatar,
-      score: existingInDb ? existingInDb.score : 0,
-      isHost: isPlayerHost,
-      isConnected: true,
-      hasGuessedCorrect: false,
-      joinedAt: existingInDb && existingInDb.joined_at ? new Date(existingInDb.joined_at).getTime() : Date.now(),
-    };
-
-    const { error: playerUpsertErr } = await supabase.from('players').upsert({
-      id: playerId,
-      room_id: dbRoom.id,
-      name: playerName,
-      avatar: avatar,
-      score: joiningPlayer.score,
-      is_host: isPlayerHost,
-      is_connected: true,
-    });
-
-    if (playerUpsertErr) {
-      console.error('[DrawRush] Failed to insert player in Supabase:', playerUpsertErr);
-      throw new Error(`Cloud Join Error: ${playerUpsertErr.message}. Make sure RLS policies are enabled in your Supabase SQL Editor!`);
-    }
-
-    const { data: updatedDbPlayers } = await supabase
-      .from('players')
-      .select('*')
-      .eq('room_id', dbRoom.id)
-      .order('joined_at', { ascending: true });
-
-    let fetchedPlayers = (updatedDbPlayers || []).map((p) => ({
-      id: p.id,
-      roomId: p.room_id,
-      name: p.name,
-      avatar: p.avatar,
-      score: p.score,
-      isHost: p.id === dbRoom.host_player_id,
-      isConnected: p.is_connected,
-      hasGuessedCorrect: p.has_guessed_correct || false,
-      joinedAt: p.joined_at ? new Date(p.joined_at).getTime() : Date.now(),
-    }));
-
-    if (!fetchedPlayers.some((p) => p.id === playerId)) {
-      fetchedPlayers.push(joiningPlayer);
-    }
-    players = fetchedPlayers;
   } else {
     room = getLocalRoom(formattedCode);
     if (!room) {
@@ -265,27 +295,39 @@ export async function joinGameRoom(
       throw new Error('This game has already ended.');
     }
     players = getLocalPlayers(formattedCode);
-    if (players.length >= room.maxPlayers && !players.some((p) => p.id === playerId)) {
-      throw new Error(`This room is full (${room.maxPlayers}/${room.maxPlayers}).`);
+
+    // Safeguard: Prevent player ID collision in local storage mode
+    let finalPlayerId = playerId;
+    const hostPlayerInLocal = players.find((p) => p.id === room!.hostPlayerId);
+    if (
+      hostPlayerInLocal &&
+      hostPlayerInLocal.id === finalPlayerId &&
+      hostPlayerInLocal.name.trim().toLowerCase() !== playerName.trim().toLowerCase()
+    ) {
+      finalPlayerId = generatePlayerId();
     }
 
-    const existingIndex = players.findIndex((p) => p.id === playerId);
+    if (players.length >= room!.maxPlayers && !players.some((p) => p.id === finalPlayerId)) {
+      throw new Error(`This room is full (${room!.maxPlayers}/${room!.maxPlayers}).`);
+    }
+
+    const existingIndex = players.findIndex((p) => p.id === finalPlayerId);
     if (existingIndex >= 0) {
       players[existingIndex] = {
         ...players[existingIndex],
         name: playerName,
         avatar,
         isConnected: true,
-        isHost: playerId === room.hostPlayerId,
+        isHost: finalPlayerId === room!.hostPlayerId,
       };
     } else {
       players.push({
-        id: playerId,
-        roomId: room.id,
+        id: finalPlayerId,
+        roomId: room!.id,
         name: playerName,
         avatar,
         score: 0,
-        isHost: playerId === room.hostPlayerId,
+        isHost: finalPlayerId === room!.hostPlayerId,
         isConnected: true,
         hasGuessedCorrect: false,
         joinedAt: Date.now(),
