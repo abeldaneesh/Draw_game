@@ -141,7 +141,13 @@ export async function joinGameRoom(
   avatar: string,
   playerId: string
 ): Promise<{ room: RoomState; player: Player; players: Player[] }> {
-  const formattedCode = roomCode.toUpperCase().trim();
+  let cleanCode = roomCode.toUpperCase().trim().replace(/[^A-Z0-9]/g, '');
+  if (cleanCode.length === 4 && !cleanCode.startsWith('DRW')) {
+    cleanCode = 'DRW' + cleanCode;
+  }
+  const formattedCode = cleanCode.length >= 7
+    ? cleanCode.slice(0, 3) + '-' + cleanCode.slice(3, 7)
+    : cleanCode;
 
   let room: RoomState | null = null;
   let players: Player[] = [];
@@ -152,13 +158,13 @@ export async function joinGameRoom(
       .from('rooms')
       .select('*')
       .eq('room_code', formattedCode)
-      .single();
+      .maybeSingle();
 
     if (error || !dbRoom) {
       if (error && error.code === '42P01') {
         throw new Error('Database Error: Table "public.rooms" does not exist! Please execute supabase/schema.sql in your Supabase SQL Editor.');
       }
-      throw new Error('This room code does not exist. Please check the code and try again.');
+      throw new Error(`Room code "${formattedCode}" does not exist. Please check the code and try again.`);
     }
 
     if (dbRoom.status === 'ENDED') {
