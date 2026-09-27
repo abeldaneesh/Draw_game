@@ -155,6 +155,9 @@ export async function joinGameRoom(
       .single();
 
     if (error || !dbRoom) {
+      if (error && error.code === '42P01') {
+        throw new Error('Database Error: Table "public.rooms" does not exist! Please execute supabase/schema.sql in your Supabase SQL Editor.');
+      }
       throw new Error('This room code does not exist. Please check the code and try again.');
     }
 
