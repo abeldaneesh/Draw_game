@@ -84,5 +84,10 @@ CREATE POLICY "Allow all on players" ON public.players FOR ALL USING (true) WITH
 CREATE POLICY "Allow all on guesses" ON public.guesses FOR ALL USING (true) WITH CHECK (true);
 
 -- REALTIME PUBLICATION SETUP (Safe re-execution)
-ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS public.rooms, public.players, public.guesses;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.rooms, public.players, public.guesses;
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE public.rooms, public.players, public.guesses;
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;
