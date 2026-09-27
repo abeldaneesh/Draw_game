@@ -25,6 +25,8 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({ isOpen
 
   const sqlSchema = `-- Copy and paste this into your Supabase SQL Editor:
 
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 CREATE TABLE IF NOT EXISTS public.rooms (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     room_code VARCHAR(10) UNIQUE NOT NULL,
@@ -44,7 +46,8 @@ CREATE TABLE IF NOT EXISTS public.rooms (
     secret_word_reveal TEXT,
     turn_started_at TIMESTAMPTZ,
     turn_ends_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS public.players (
@@ -56,7 +59,8 @@ CREATE TABLE IF NOT EXISTS public.players (
     is_host BOOLEAN NOT NULL DEFAULT FALSE,
     is_connected BOOLEAN NOT NULL DEFAULT TRUE,
     has_guessed_correct BOOLEAN NOT NULL DEFAULT FALSE,
-    joined_at TIMESTAMPTZ DEFAULT NOW()
+    joined_at TIMESTAMPTZ DEFAULT NOW(),
+    last_seen_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS public.guesses (
@@ -70,6 +74,25 @@ CREATE TABLE IF NOT EXISTS public.guesses (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- ENABLE ROW LEVEL SECURITY
+ALTER TABLE public.rooms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.players ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.guesses ENABLE ROW LEVEL SECURITY;
+
+-- ANONYMOUS POLICIES
+CREATE POLICY "Allow public select on rooms" ON public.rooms FOR SELECT USING (true);
+CREATE POLICY "Allow public insert on rooms" ON public.rooms FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update on rooms" ON public.rooms FOR UPDATE USING (true);
+
+CREATE POLICY "Allow public select on players" ON public.players FOR SELECT USING (true);
+CREATE POLICY "Allow public insert on players" ON public.players FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update on players" ON public.players FOR UPDATE USING (true);
+CREATE POLICY "Allow public delete on players" ON public.players FOR DELETE USING (true);
+
+CREATE POLICY "Allow public select on guesses" ON public.guesses FOR SELECT USING (true);
+CREATE POLICY "Allow public insert on guesses" ON public.guesses FOR INSERT WITH CHECK (true);
+
+-- REALTIME PUBLICATION
 ALTER PUBLICATION supabase_realtime ADD TABLE public.rooms, public.players, public.guesses;
 `;
 

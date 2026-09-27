@@ -105,10 +105,11 @@ export async function createGameRoom(
 
     if (roomErr) {
       console.error('Failed to insert room in Supabase:', roomErr);
+      throw new Error(`Cloud Room Creation Error: ${roomErr.message}. Make sure table schemas exist in your Supabase SQL Editor!`);
     } else if (dbRoom) {
       room.id = dbRoom.id;
       hostPlayer.roomId = dbRoom.id;
-      await supabase.from('players').insert([
+      const { error: playerErr } = await supabase.from('players').insert([
         {
           id: hostPlayer.id,
           room_id: dbRoom.id,
@@ -119,6 +120,10 @@ export async function createGameRoom(
           is_connected: true,
         },
       ]);
+      if (playerErr) {
+        console.error('Failed to insert host player in Supabase:', playerErr);
+        throw new Error(`Cloud Player Insertion Error: ${playerErr.message}`);
+      }
     }
   }
 
