@@ -1,0 +1,168 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-heading: 'Righteous', cursive, sans-serif;
+    --font-serif: 'Playfair Display', Georgia, serif;
+    --font-typewriter: 'Special Elite', 'Courier Prime', monospace;
+  }
+
+  html, body, #root {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #F4EFE6;
+    background-image: 
+      radial-gradient(#3A342B 0.75px, transparent 0.75px), 
+      radial-gradient(#3A342B 0.75px, #F4EFE6 0.75px);
+    background-size: 30px 30px;
+    background-position: 0 0, 15px 15px;
+    color: #3A342B;
+    font-family: var(--font-typewriter);
+    overflow-x: hidden;
+  }
+}
+
+/* Custom Typography Utilities */
+.font-retro-heading {
+  font-family: 'Righteous', cursive, sans-serif;
+}
+.font-retro-serif {
+  font-family: 'Playfair Display', Georgia, serif;
+}
+.font-typewriter {
+  font-family: 'Special Elite', 'Courier Prime', monospace;
+}
+
+/* Retro Tactile Paper Cards & Buttons */
+.retro-card {
+  background-color: #FAF6EE;
+  border: 3px solid #3A342B;
+  box-shadow: 5px 5px 0px #3A342B;
+  border-radius: 16px;
+}
+
+.retro-card-teal {
+  background-color: #3B8B88;
+  color: #FFFFFF;
+  border: 3px solid #1E4E4C;
+  box-shadow: 5px 5px 0px #1E4E4C;
+  border-radius: 16px;
+}
+
+.retro-card-coral {
+  background-color: #E05A47;
+  color: #FFFFFF;
+  border: 3px solid #2B2520;
+  box-shadow: 5px 5px 0px #2B2520;
+  border-radius: 16px;
+}
+
+.retro-btn {
+  background-color: #3B8B88;
+  color: #FFFFFF;
+  border: 3px solid #2B2520;
+  box-shadow: 4px 4px 0px #2B2520;
+  border-radius: 12px;
+  font-family: 'Righteous', cursive, sans-serif;
+  transition: all 0.15s ease-in-out;
+  cursor: pointer;
+}
+
+.retro-btn:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0px #2B2520;
+}
+
+.retro-btn:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0px #2B2520;
+}
+
+.retro-btn-coral {
+  background-color: #E05A47;
+  color: #FFFFFF;
+  border: 3px solid #2B2520;
+  box-shadow: 4px 4px 0px #2B2520;
+  border-radius: 12px;
+  font-family: 'Righteous', cursive, sans-serif;
+  transition: all 0.15s ease-in-out;
+  cursor: pointer;
+}
+
+.retro-btn-coral:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0px #2B2520;
+}
+
+.retro-btn-coral:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0px #2B2520;
+}
+
+.retro-btn-gold {
+  background-color: #E5A93C;
+  color: #2B2520;
+  border: 3px solid #2B2520;
+  box-shadow: 4px 4px 0px #2B2520;
+  border-radius: 12px;
+  font-family: 'Righteous', cursive, sans-serif;
+  transition: all 0.15s ease-in-out;
+  cursor: pointer;
+}
+
+.retro-btn-gold:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0px #2B2520;
+}
+
+.retro-btn-gold:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0px #2B2520;
+}
+
+.retro-badge {
+  border: 2px solid #3A342B;
+  box-shadow: 2px 2px 0px #3A342B;
+  border-radius: 8px;
+}
+
+/* Stitched dashed retro border */
+.retro-stitched {
+  border: 2px dashed #8C7B6B;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #EAE0CF;
+  border-left: 2px solid #3A342B;
+}
+::-webkit-scrollbar-thumb {
+  background: #3B8B88;
+  border: 2px solid #3A342B;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #E05A47;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
