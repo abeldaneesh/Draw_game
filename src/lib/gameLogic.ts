@@ -273,3 +273,76 @@ export async function verifyGuess(guessText: string, wordHash: string | null): P
   const hash = await hashWord(guessText);
   return hash === wordHash;
 }
+
+export async function fetchCloudPlayers(roomId: string): Promise<Player[]> {
+  if (!isSupabaseConfigured() || !supabase) return [];
+  const { data, error } = await supabase
+    .from('players')
+    .select('*')
+    .eq('room_id', roomId);
+  if (error || !data) return [];
+  return data.map((p) => ({
+    id: p.id,
+    roomId: p.room_id,
+    name: p.name,
+    avatar: p.avatar,
+    score: p.score,
+    isHost: p.is_host,
+    isConnected: p.is_connected,
+    hasGuessedCorrect: p.has_guessed_correct || false,
+    joinedAt: new Date(p.joined_at).getTime(),
+  }));
+}
+
+export async function fetchCloudRoom(roomId: string): Promise<RoomState | null> {
+  if (!isSupabaseConfigured() || !supabase) return null;
+  const { data: dbRoom, error } = await supabase
+    .from('rooms')
+    .select('*')
+    .eq('id', roomId)
+    .single();
+  if (error || !dbRoom) return null;
+  return {
+    id: dbRoom.id,
+    roomCode: dbRoom.room_code,
+    hostPlayerId: dbRoom.host_player_id,
+    status: dbRoom.status as any,
+    maxPlayers: dbRoom.max_players,
+    rounds: dbRoom.rounds,
+    turnDuration: dbRoom.turn_duration,
+    difficulty: dbRoom.difficulty as any,
+    customWords: dbRoom.custom_words || [],
+    currentRound: dbRoom.current_round,
+    currentTurn: dbRoom.current_turn,
+    currentDrawerId: dbRoom.current_drawer_id,
+    wordHash: dbRoom.word_hash,
+    wordLength: dbRoom.word_length,
+    wordCategory: dbRoom.word_category,
+    secretWordReveal: dbRoom.secret_word_reveal,
+    turnStartedAt: dbRoom.turn_started_at ? new Date(dbRoom.turn_started_at).getTime() : null,
+    turnEndsAt: dbRoom.turn_ends_at ? new Date(dbRoom.turn_ends_at).getTime() : null,
+    createdAt: new Date(dbRoom.created_at).getTime(),
+  };
+}
+
+export async function updateCloudRoom(roomId: string, updates: Partial<RoomState>): Promise<void> {
+  if (!isSupabaseConfigured() || !supabase) return;
+  const payload: any = {};
+  if (updates.status !== undefined) payload.status = updates.status;
+  if (updates.currentRound !== undefined) payload.current_round = updates.currentRound;
+  if (updates.currentTurn !== undefined) payload.current_turn = updates.currentTurn;
+  if (updates.currentDrawerId !== undefined) payload.current_drawer_id = updates.currentDrawerId;
+  if (updates.wordHash !== undefined) payload.word_hash = updates.wordHash;
+  if (updates.wordLength !== undefined) payload.word_length = updates.wordLength;
+  if (updates.wordCategory !== undefined) payload.word_category = updates.wordCategory;
+  if (updates.turnStartedAt !== undefined) payload.turn_started_at = updates.turnStartedAt ? new Date(updates.turnStartedAt).toISOString() : null;
+  if (updates.turnEndsAt !== undefined) payload.turn_ends_at = updates.turnEndsAt ? new Date(updates.turnEndsAt).toISOString() : null;
+  if (updates.rounds !== undefined) payload.rounds = updates.rounds;
+  if (updates.turnDuration !== undefined) payload.turn_duration = updates.turnDuration;
+  if (updates.difficulty !== undefined) payload.difficulty = updates.difficulty;
+  if (updates.customWords !== undefined) payload.custom_words = updates.customWords;
+
+  if (Object.keys(payload).length > 0) {
+    await supabase.from('rooms').update(payload).eq('id', roomId);
+  }
+}

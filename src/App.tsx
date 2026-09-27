@@ -9,7 +9,11 @@ import {
   verifyGuess,
   saveLocalRoom,
   saveLocalPlayers,
+  fetchCloudPlayers,
+  fetchCloudRoom,
+  updateCloudRoom,
 } from './lib/gameLogic';
+import { isSupabaseConfigured } from './lib/supabase';
 
 import { MultiplayerChannel } from './lib/broadcast';
 import { soundManager } from './lib/audio';
@@ -88,6 +92,26 @@ export const App: React.FC = () => {
       }
     });
 
+    // Cloud Database Change Event
+    ch.on('cloud_db_change', async () => {
+      if (roomRef.current) {
+        const cloudPlayers = await fetchCloudPlayers(roomRef.current.id);
+        if (cloudPlayers.length > 0) {
+          setPlayers((prev) => {
+            const prevKey = prev.map((p) => p.id).sort().join(',');
+            const nextKey = cloudPlayers.map((p) => p.id).sort().join(',');
+            if (prevKey !== nextKey) {
+              if (cloudPlayers.length > prev.length) soundManager.playJoinSound();
+              return cloudPlayers;
+            }
+            return prev;
+          });
+        }
+        const cloudRoom = await fetchCloudRoom(roomRef.current.id);
+        if (cloudRoom) setRoom(cloudRoom);
+      }
+    });
+
     // Sync Chat Messages
     ch.on('chat_message', (msg: GuessMessage) => {
       setMessages((prev) => [...prev, msg]);
@@ -134,6 +158,46 @@ export const App: React.FC = () => {
     setChannel(ch);
     return ch;
   }, [playerId]);
+
+  // Periodic Cloud Sync Polling while inside a room
+  useEffect(() => {
+    if (!room || !isSupabaseConfigured()) return;
+
+    const syncState = async () => {
+      if (!room.id) return;
+
+      const cloudPlayers = await fetchCloudPlayers(room.id);
+      if (cloudPlayers.length > 0) {
+        setPlayers((prev) => {
+          const prevKey = prev.map((p) => p.id).sort().join(',');
+          const nextKey = cloudPlayers.map((p) => p.id).sort().join(',');
+          if (prevKey !== nextKey) {
+            if (cloudPlayers.length > prev.length) soundManager.playJoinSound();
+            return cloudPlayers;
+          }
+          return prev;
+        });
+      }
+
+      const cloudRoom = await fetchCloudRoom(room.id);
+      if (cloudRoom) {
+        setRoom((prev) => {
+          if (!prev) return cloudRoom;
+          if (
+            prev.status !== cloudRoom.status ||
+            prev.currentDrawerId !== cloudRoom.currentDrawerId ||
+            prev.currentRound !== cloudRoom.currentRound
+          ) {
+            return cloudRoom;
+          }
+          return prev;
+        });
+      }
+    };
+
+    const interval = setInterval(syncState, 2000);
+    return () => clearInterval(interval);
+  }, [room?.id]);
 
   // Cleanup Channel on Unmount
   useEffect(() => {
@@ -186,13 +250,14 @@ export const App: React.FC = () => {
   };
 
   // 3. Update Host Settings
-  const handleUpdateSettings = (newSettings: Partial<RoomState>) => {
+  const handleUpdateSettings = async (newSettings: Partial<RoomState>) => {
     if (!room || currentPlayer?.id !== room.hostPlayerId) return;
 
     const updatedRoom: RoomState = { ...room, ...newSettings };
     setRoom(updatedRoom);
     saveLocalRoom(updatedRoom);
     channel?.send('room_state_update', updatedRoom);
+    await updateCloudRoom(room.id, newSettings);
   };
 
   // 4. Kick Player (Host action)
@@ -208,7 +273,7 @@ export const App: React.FC = () => {
   };
 
   // 5. Start Game (Host action)
-  const handleStartGame = () => {
+  const handleStartGame = async () => {
     if (!room || currentPlayer?.id !== room.hostPlayerId || players.length < 2) return;
 
     // Reset scores & status
@@ -237,6 +302,13 @@ export const App: React.FC = () => {
 
     channel?.send('room_state_update', startedRoom);
     channel?.send('players_update', resetPlayers);
+
+    await updateCloudRoom(room.id, {
+      status: 'PLAYING',
+      currentRound: 1,
+      currentTurn: 0,
+      currentDrawerId: firstDrawer.id,
+    });
 
     // Trigger first turn word choice
     prepareTurnWordChoice(startedRoom, resetPlayers);

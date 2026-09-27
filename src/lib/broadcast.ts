@@ -9,9 +9,11 @@ export class MultiplayerChannel {
   private localBroadcastChannel: BroadcastChannel | null = null;
   private eventListeners: Map<string, Set<EventCallback>> = new Map();
 
+  private isSubscribed: boolean = false;
+  private pendingQueue: Array<{ eventName: string; data: any }> = [];
+
   constructor(roomCode: string) {
     this.roomCode = roomCode;
-
 
     if (isSupabaseConfigured() && supabase) {
       this.supabaseChannel = supabase.channel(`room:${roomCode}`, {
@@ -27,7 +29,36 @@ export class MultiplayerChannel {
           const data = payload.payload;
           this.trigger(eventName, data);
         })
-        .subscribe();
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'players' },
+          () => {
+            this.trigger('cloud_db_change', { type: 'players' });
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'rooms' },
+          () => {
+            this.trigger('cloud_db_change', { type: 'rooms' });
+          }
+        )
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            this.isSubscribed = true;
+            // Flush queued messages
+            while (this.pendingQueue.length > 0) {
+              const msg = this.pendingQueue.shift();
+              if (msg) {
+                this.supabaseChannel?.send({
+                  type: 'broadcast',
+                  event: msg.eventName,
+                  payload: msg.data,
+                });
+              }
+            }
+          }
+        });
     } else {
       // Local Tab Sync Fallback using BroadcastChannel API
       if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
@@ -61,11 +92,15 @@ export class MultiplayerChannel {
   public send(eventName: string, data: any) {
     // 1. Supabase broadcast
     if (this.supabaseChannel) {
-      this.supabaseChannel.send({
-        type: 'broadcast',
-        event: eventName,
-        payload: data,
-      });
+      if (this.isSubscribed) {
+        this.supabaseChannel.send({
+          type: 'broadcast',
+          event: eventName,
+          payload: data,
+        });
+      } else {
+        this.pendingQueue.push({ eventName, data });
+      }
     }
 
     // 2. BroadcastChannel
