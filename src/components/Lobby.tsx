@@ -122,42 +122,45 @@ export const Lobby: React.FC<LobbyProps> = ({
 
             {/* Players Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-80 overflow-y-auto pr-1">
-              {players.map((p) => (
-                <div
-                  key={p.id}
-                  className={`relative flex items-center justify-between p-3.5 rounded-xl border-2 border-[#2B2520] shadow-[3px_3px_0px_#2B2520] transition-all ${
-                    p.isHost
-                      ? 'bg-[#FFF6DF] text-[#2B2520]'
-                      : p.id === currentPlayer.id
-                      ? 'bg-[#D2ECE9] text-[#2B2520]'
-                      : 'bg-[#FFFDF9] text-[#2B2520]'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-[#EAE0CF] border-2 border-[#2B2520] flex items-center justify-center text-xl shadow-inner">
-                      {p.avatar}
+              {players.map((p) => {
+                const playerIsHost = p.id === room.hostPlayerId;
+                return (
+                  <div
+                    key={p.id}
+                    className={`relative flex items-center justify-between p-3.5 rounded-xl border-2 border-[#2B2520] shadow-[3px_3px_0px_#2B2520] transition-all ${
+                      playerIsHost
+                        ? 'bg-[#FFF6DF] text-[#2B2520]'
+                        : p.id === currentPlayer.id
+                        ? 'bg-[#D2ECE9] text-[#2B2520]'
+                        : 'bg-[#FFFDF9] text-[#2B2520]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-[#EAE0CF] border-2 border-[#2B2520] flex items-center justify-center text-xl shadow-inner">
+                        {p.avatar}
+                      </div>
+                      <div>
+                        <span className="font-bold text-sm font-typewriter block">{p.name}</span>
+                        {playerIsHost && (
+                          <span className="text-[10px] font-extrabold text-[#E05A47] flex items-center gap-1 font-retro-heading">
+                            <Crown className="w-3 h-3 fill-current" /> ROOM HOST
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <div>
-                      <span className="font-bold text-sm font-typewriter block">{p.name}</span>
-                      {p.isHost && (
-                        <span className="text-[10px] font-extrabold text-[#E05A47] flex items-center gap-1 font-retro-heading">
-                          <Crown className="w-3 h-3 fill-current" /> ROOM HOST
-                        </span>
-                      )}
-                    </div>
-                  </div>
 
-                  {isHost && !p.isHost && (
-                    <button
-                      onClick={() => onKickPlayer(p.id)}
-                      title="Kick player"
-                      className="p-1.5 text-[#8C7B6B] hover:text-[#C84432] hover:bg-[#FADED9] rounded-lg transition-colors border border-transparent hover:border-[#E05A47]"
-                    >
-                      <UserX className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-              ))}
+                    {isHost && !playerIsHost && (
+                      <button
+                        onClick={() => onKickPlayer(p.id)}
+                        title="Kick player"
+                        className="p-1.5 text-[#8C7B6B] hover:text-[#C84432] hover:bg-[#FADED9] rounded-lg transition-colors border border-transparent hover:border-[#E05A47]"
+                      >
+                        <UserX className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 

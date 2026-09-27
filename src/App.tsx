@@ -6,6 +6,7 @@ import { calculateGuesserScore, calculateDrawerBonus } from './lib/scoring';
 import {
   createGameRoom,
   joinGameRoom,
+  leaveGameRoom,
   verifyGuess,
   saveLocalRoom,
   saveLocalPlayers,
@@ -81,25 +82,48 @@ export const App: React.FC = () => {
     // Sync Room State
     ch.on('room_state_update', (newRoom: RoomState) => {
       setRoom(newRoom);
+      roomRef.current = newRoom;
     });
 
     // Sync Players List
     ch.on('players_update', (newPlayers: Player[]) => {
-      setPlayers(newPlayers);
-      // Play join sound if a new player arrived
-      if (newPlayers.length > playersRef.current.length) {
-        soundManager.playJoinSound();
+      if (newPlayers && Array.isArray(newPlayers)) {
+        setPlayers((prev) => {
+          if (newPlayers.length > prev.length) soundManager.playJoinSound();
+          return newPlayers;
+        });
+      }
+    });
+
+    // Player Joined Event
+    ch.on('player_joined', ({ players: updatedPlayers }) => {
+      if (updatedPlayers && Array.isArray(updatedPlayers)) {
+        setPlayers((prev) => {
+          if (updatedPlayers.length > prev.length) soundManager.playJoinSound();
+          return updatedPlayers;
+        });
+      }
+    });
+
+    // Host Transferred Event
+    ch.on('host_transferred', ({ newHostId, players: updatedPlayers }) => {
+      setRoom((prev) => (prev ? { ...prev, hostPlayerId: newHostId } : null));
+      if (updatedPlayers && Array.isArray(updatedPlayers)) {
+        setPlayers(updatedPlayers);
       }
     });
 
     // Cloud Database Change Event
     ch.on('cloud_db_change', async () => {
       if (roomRef.current) {
-        const cloudPlayers = await fetchCloudPlayers(roomRef.current.id, roomRef.current.hostPlayerId);
+        const cloudRoom = await fetchCloudRoom(roomRef.current.id);
+        const hostId = cloudRoom ? cloudRoom.hostPlayerId : roomRef.current.hostPlayerId;
+        const cloudPlayers = await fetchCloudPlayers(roomRef.current.id, hostId);
+
         if (cloudPlayers.length > 0) {
           setPlayers((prev) => {
-            const prevKey = prev.map((p) => p.id).sort().join(',');
-            const nextKey = cloudPlayers.map((p) => p.id).sort().join(',');
+            const prevKey = prev.map((p) => `${p.id}:${p.score}:${p.isConnected}`).sort().join(',');
+            const nextKey = cloudPlayers.map((p) => `${p.id}:${p.score}:${p.isConnected}`).sort().join(',');
             if (prevKey !== nextKey) {
               if (cloudPlayers.length > prev.length) soundManager.playJoinSound();
               return cloudPlayers;
@@ -107,8 +131,10 @@ export const App: React.FC = () => {
             return prev;
           });
         }
-        const cloudRoom = await fetchCloudRoom(roomRef.current.id);
-        if (cloudRoom) setRoom(cloudRoom);
+        if (cloudRoom) {
+          setRoom(cloudRoom);
+          roomRef.current = cloudRoom;
+        }
       }
     });
 
@@ -166,7 +192,10 @@ export const App: React.FC = () => {
     const syncState = async () => {
       if (!room.id) return;
 
-      const cloudPlayers = await fetchCloudPlayers(room.id, room.hostPlayerId);
+      const cloudRoom = await fetchCloudRoom(room.id);
+      const hostId = cloudRoom ? cloudRoom.hostPlayerId : room.hostPlayerId;
+      const cloudPlayers = await fetchCloudPlayers(room.id, hostId);
+
       if (cloudPlayers.length > 0) {
         setPlayers((prev) => {
           const prevKey = prev.map((p) => p.id).sort().join(',');
@@ -179,14 +208,14 @@ export const App: React.FC = () => {
         });
       }
 
-      const cloudRoom = await fetchCloudRoom(room.id);
       if (cloudRoom) {
         setRoom((prev) => {
           if (!prev) return cloudRoom;
           if (
             prev.status !== cloudRoom.status ||
             prev.currentDrawerId !== cloudRoom.currentDrawerId ||
-            prev.currentRound !== cloudRoom.currentRound
+            prev.currentRound !== cloudRoom.currentRound ||
+            prev.hostPlayerId !== cloudRoom.hostPlayerId
           ) {
             return cloudRoom;
           }
@@ -198,6 +227,19 @@ export const App: React.FC = () => {
     const interval = setInterval(syncState, 2000);
     return () => clearInterval(interval);
   }, [room?.id]);
+
+  // Handle player unload/disconnect cleanly
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (roomRef.current && playerId) {
+        leaveGameRoom(roomRef.current, playerId);
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [playerId]);
 
   // Cleanup Channel on Unmount
   useEffect(() => {
@@ -214,6 +256,8 @@ export const App: React.FC = () => {
   const handleCreateRoom = async (name: string, avatar: string, settings: RoomSettings) => {
     try {
       const { room: newRoom, player } = await createGameRoom(name, avatar, playerId, settings);
+      roomRef.current = newRoom;
+      playersRef.current = [player];
       setRoom(newRoom);
       setCurrentPlayer(player);
       setPlayers([player]);
@@ -236,11 +280,14 @@ export const App: React.FC = () => {
         playerId
       );
 
+      roomRef.current = joinedRoom;
+      playersRef.current = roomPlayers;
       setRoom(joinedRoom);
       setCurrentPlayer(player);
       setPlayers(roomPlayers);
 
       const ch = setupChannel(joinedRoom.roomCode);
+      ch.send('player_joined', { player, players: roomPlayers });
       ch.send('players_update', roomPlayers);
 
       window.location.hash = `room=${joinedRoom.roomCode}`;

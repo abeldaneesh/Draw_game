@@ -48,6 +48,7 @@ export const PlayerList: React.FC<PlayerListProps> = ({
         {sortedPlayers.map((player) => {
           const isDrawer = player.id === currentDrawerId;
           const isMe = player.id === currentPlayerId;
+          const playerIsHost = player.id === hostPlayerId;
 
           return (
             <div
@@ -68,7 +69,7 @@ export const PlayerList: React.FC<PlayerListProps> = ({
                   <div className="w-9 h-9 rounded-lg bg-[#EAE0CF] border-2 border-[#2B2520] flex items-center justify-center text-lg shadow-inner">
                     {player.avatar}
                   </div>
-                  {player.isHost && (
+                  {playerIsHost && (
                     <div
                       title="Room Host"
                       className="absolute -top-1.5 -right-1.5 bg-[#E05A47] text-white p-0.5 rounded-full border border-[#2B2520] shadow"
@@ -112,7 +113,7 @@ export const PlayerList: React.FC<PlayerListProps> = ({
                   {player.score}
                 </span>
 
-                {isHost && !player.isHost && onKickPlayer && (
+                {isHost && !playerIsHost && onKickPlayer && (
                   <button
                     onClick={() => onKickPlayer(player.id)}
                     title={`Kick ${player.name}`}

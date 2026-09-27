@@ -162,16 +162,6 @@ export async function joinGameRoom(
       throw new Error('This game has already ended.');
     }
 
-    const { data: dbPlayers } = await supabase
-      .from('players')
-      .select('*')
-      .eq('room_id', dbRoom.id);
-
-    const activePlayers = dbPlayers || [];
-    if (activePlayers.length >= dbRoom.max_players && !activePlayers.some((p) => p.id === playerId)) {
-      throw new Error('This room is currently full (' + dbRoom.max_players + '/' + dbRoom.max_players + ').');
-    }
-
     room = {
       id: dbRoom.id,
       roomCode: dbRoom.room_code,
@@ -194,7 +184,40 @@ export async function joinGameRoom(
       createdAt: new Date(dbRoom.created_at).getTime(),
     };
 
-    players = activePlayers.map((p) => ({
+    const { data: dbPlayers } = await supabase
+      .from('players')
+      .select('*')
+      .eq('room_id', dbRoom.id);
+
+    const activePlayers = dbPlayers || [];
+    if (activePlayers.length >= dbRoom.max_players && !activePlayers.some((p) => p.id === playerId)) {
+      throw new Error('This room is currently full (' + dbRoom.max_players + '/' + dbRoom.max_players + ').');
+    }
+
+    const existingInDb = activePlayers.find((p) => p.id === playerId);
+    const isPlayerHost = playerId === dbRoom.host_player_id;
+
+    const { error: playerUpsertErr } = await supabase.from('players').upsert({
+      id: playerId,
+      room_id: dbRoom.id,
+      name: playerName,
+      avatar: avatar,
+      score: existingInDb ? existingInDb.score : 0,
+      is_host: isPlayerHost,
+      is_connected: true,
+    });
+
+    if (playerUpsertErr) {
+      console.error('[DrawRush] Failed to insert player in Supabase:', playerUpsertErr);
+      throw new Error(`Cloud Join Error: ${playerUpsertErr.message}. Make sure RLS policies are enabled in your Supabase SQL Editor!`);
+    }
+
+    const { data: updatedDbPlayers } = await supabase
+      .from('players')
+      .select('*')
+      .eq('room_id', dbRoom.id);
+
+    players = (updatedDbPlayers || []).map((p) => ({
       id: p.id,
       roomId: p.room_id,
       name: p.name,
@@ -218,69 +241,95 @@ export async function joinGameRoom(
     if (players.length >= room.maxPlayers && !players.some((p) => p.id === playerId)) {
       throw new Error(`This room is full (${room.maxPlayers}/${room.maxPlayers}).`);
     }
-  }
 
-  // Check if player already exists in room (reconnection flow)
-  const existingPlayer = players.find((p) => p.id === playerId);
-  let player: Player;
-
-  if (existingPlayer) {
-    player = { ...existingPlayer, name: playerName, avatar, isConnected: true, isHost: existingPlayer.id === room.hostPlayerId };
-    players = players.map((p) => (p.id === playerId ? player : p));
-  } else {
-    player = {
-      id: playerId,
-      roomId: room.id,
-      name: playerName,
-      avatar,
-      score: 0,
-      isHost: playerId === room.hostPlayerId,
-      isConnected: true,
-      hasGuessedCorrect: false,
-      joinedAt: Date.now(),
-    };
-    players.push(player);
-  }
-
-  // If room has no active host (e.g. host left or original host record was missing), reassign host to first active player!
-  if (!players.some((p) => p.id === room.hostPlayerId)) {
-    if (players.length > 0) {
-      room.hostPlayerId = players[0].id;
-      if (isSupabaseConfigured() && supabase) {
-        await supabase.from('rooms').update({ host_player_id: room.hostPlayerId }).eq('id', room.id);
-      }
+    const existingIndex = players.findIndex((p) => p.id === playerId);
+    if (existingIndex >= 0) {
+      players[existingIndex] = {
+        ...players[existingIndex],
+        name: playerName,
+        avatar,
+        isConnected: true,
+        isHost: playerId === room.hostPlayerId,
+      };
+    } else {
+      players.push({
+        id: playerId,
+        roomId: room.id,
+        name: playerName,
+        avatar,
+        score: 0,
+        isHost: playerId === room.hostPlayerId,
+        isConnected: true,
+        hasGuessedCorrect: false,
+        joinedAt: Date.now(),
+      });
     }
   }
 
   // Ensure isHost on all player objects is strictly derived from room.hostPlayerId
   players = players.map((p) => ({
     ...p,
-    isHost: p.id === room.hostPlayerId,
+    isHost: p.id === room!.hostPlayerId,
   }));
-  player.isHost = player.id === room.hostPlayerId;
 
-  // Update DB or LocalStorage
-  if (isSupabaseConfigured() && supabase) {
-    const { error: playerUpsertErr } = await supabase.from('players').upsert({
-      id: player.id,
-      room_id: room.id,
-      name: player.name,
-      avatar: player.avatar,
-      score: player.score,
-      is_host: player.isHost,
-      is_connected: true,
-    });
-
-    if (playerUpsertErr) {
-      console.error('[DrawRush] Failed to insert player in Supabase:', playerUpsertErr);
-      throw new Error(`Cloud Join Error: ${playerUpsertErr.message}. Make sure RLS policies are enabled in your Supabase SQL Editor!`);
-    }
-  }
+  const player = players.find((p) => p.id === playerId) || {
+    id: playerId,
+    roomId: room.id,
+    name: playerName,
+    avatar,
+    score: 0,
+    isHost: playerId === room.hostPlayerId,
+    isConnected: true,
+    hasGuessedCorrect: false,
+    joinedAt: Date.now(),
+  };
 
   saveLocalRoom(room);
   saveLocalPlayers(formattedCode, players);
 
   return { room, player, players };
+}
+
+export async function leaveGameRoom(
+  room: RoomState,
+  playerId: string
+): Promise<{ newHostId: string | null; remainingPlayers: Player[] }> {
+  if (isSupabaseConfigured() && supabase) {
+    await supabase.from('players').delete().eq('id', playerId).eq('room_id', room.id);
+  }
+
+  let remaining = isSupabaseConfigured()
+    ? (await fetchCloudPlayers(room.id, room.hostPlayerId)).filter((p) => p.id !== playerId)
+    : getLocalPlayers(room.roomCode).filter((p) => p.id !== playerId);
+
+  let newHostId: string | null = room.hostPlayerId;
+
+  // Perform host transfer ONLY if the host left
+  if (playerId === room.hostPlayerId) {
+    if (remaining.length > 0) {
+      // Deterministic transfer to earliest remaining player
+      remaining.sort((a, b) => a.joinedAt - b.joinedAt);
+      newHostId = remaining[0].id;
+      room.hostPlayerId = newHostId;
+
+      if (isSupabaseConfigured() && supabase) {
+        await supabase.from('rooms').update({ host_player_id: newHostId }).eq('id', room.id);
+        await supabase.from('players').update({ is_host: true }).eq('id', newHostId);
+      }
+    } else {
+      newHostId = null;
+    }
+  }
+
+  const updatedPlayers = remaining.map((p) => ({
+    ...p,
+    isHost: p.id === newHostId,
+  }));
+
+  saveLocalRoom(room);
+  saveLocalPlayers(room.roomCode, updatedPlayers);
+
+  return { newHostId, remainingPlayers: updatedPlayers };
 }
 
 // Check guess string against anti-cheat word hash
@@ -295,7 +344,8 @@ export async function fetchCloudPlayers(roomId: string, hostPlayerId?: string): 
   const { data, error } = await supabase
     .from('players')
     .select('*')
-    .eq('room_id', roomId);
+    .eq('room_id', roomId)
+    .order('joined_at', { ascending: true });
   if (error || !data) return [];
   return data.map((p) => ({
     id: p.id,
