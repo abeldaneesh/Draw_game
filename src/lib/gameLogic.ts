@@ -250,7 +250,7 @@ export async function joinGameRoom(
 
   // Update DB or LocalStorage
   if (isSupabaseConfigured() && supabase) {
-    await supabase.from('players').upsert({
+    const { error: playerUpsertErr } = await supabase.from('players').upsert({
       id: player.id,
       room_id: room.id,
       name: player.name,
@@ -259,6 +259,11 @@ export async function joinGameRoom(
       is_host: player.isHost,
       is_connected: true,
     });
+
+    if (playerUpsertErr) {
+      console.error('[DrawRush] Failed to insert player in Supabase:', playerUpsertErr);
+      throw new Error(`Cloud Join Error: ${playerUpsertErr.message}. Make sure RLS policies are enabled in your Supabase SQL Editor!`);
+    }
   }
 
   saveLocalRoom(room);

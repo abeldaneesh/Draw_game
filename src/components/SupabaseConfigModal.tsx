@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Database, Check, X, Shield, Sparkles } from 'lucide-react';
-import { isSupabaseConfigured, saveSupabaseConfig } from '../lib/supabase';
+import { isSupabaseConfigured, saveSupabaseConfig, testSupabaseConnection } from '../lib/supabase';
 
 interface SupabaseConfigModalProps {
   isOpen: boolean;
@@ -11,6 +11,8 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({ isOpen
   const [url, setUrl] = useState(import.meta.env.VITE_SUPABASE_URL || localStorage.getItem('drawrush_supabase_url') || '');
   const [key, setKey] = useState(import.meta.env.VITE_SUPABASE_ANON_KEY || localStorage.getItem('drawrush_supabase_key') || '');
   const [activeTab, setActiveTab] = useState<'config' | 'sql'>('config');
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [testing, setTesting] = useState<boolean>(false);
 
   if (!isOpen) return null;
 
@@ -21,6 +23,14 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({ isOpen
 
   const handleClear = () => {
     saveSupabaseConfig('', '');
+  };
+
+  const handleTestConnection = async () => {
+    setTesting(true);
+    setTestResult(null);
+    const result = await testSupabaseConnection();
+    setTestResult(result);
+    setTesting(false);
   };
 
   const sqlSchema = `-- Copy and paste this into your Supabase SQL Editor:
@@ -79,18 +89,14 @@ ALTER TABLE public.rooms ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.players ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.guesses ENABLE ROW LEVEL SECURITY;
 
--- ANONYMOUS POLICIES
-CREATE POLICY "Allow public select on rooms" ON public.rooms FOR SELECT USING (true);
-CREATE POLICY "Allow public insert on rooms" ON public.rooms FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update on rooms" ON public.rooms FOR UPDATE USING (true);
+-- ANONYMOUS POLICIES (Allow public select/insert/update/delete for casual gameplay)
+DROP POLICY IF EXISTS "Allow all on rooms" ON public.rooms;
+DROP POLICY IF EXISTS "Allow all on players" ON public.players;
+DROP POLICY IF EXISTS "Allow all on guesses" ON public.guesses;
 
-CREATE POLICY "Allow public select on players" ON public.players FOR SELECT USING (true);
-CREATE POLICY "Allow public insert on players" ON public.players FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update on players" ON public.players FOR UPDATE USING (true);
-CREATE POLICY "Allow public delete on players" ON public.players FOR DELETE USING (true);
-
-CREATE POLICY "Allow public select on guesses" ON public.guesses FOR SELECT USING (true);
-CREATE POLICY "Allow public insert on guesses" ON public.guesses FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow all on rooms" ON public.rooms FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all on players" ON public.players FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all on guesses" ON public.guesses FOR ALL USING (true) WITH CHECK (true);
 
 -- REALTIME PUBLICATION
 ALTER PUBLICATION supabase_realtime ADD TABLE public.rooms, public.players, public.guesses;
@@ -198,16 +204,40 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.rooms, public.players, publ
                 />
               </div>
 
+              {testResult && (
+                <div
+                  className={`p-3 border-2 rounded-xl text-xs font-typewriter ${
+                    testResult.success
+                      ? 'bg-[#D2ECE9] border-[#3B8B88] text-[#1B5250]'
+                      : 'bg-[#FADED9] border-[#E05A47] text-[#C84432]'
+                  }`}
+                >
+                  {testResult.success ? '✅ ' : '❌ '}
+                  {testResult.message}
+                </div>
+              )}
+
               <div className="flex items-center justify-between pt-2">
-                {isSupabaseConfigured() && (
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={handleClear}
-                    className="px-3 py-1.5 text-xs font-bold text-[#C84432] hover:bg-[#FADED9] rounded-lg transition-colors font-retro-heading"
+                    onClick={handleTestConnection}
+                    disabled={testing}
+                    className="px-3 py-1.5 text-xs font-bold bg-[#EAE0CF] hover:bg-[#DFD2BC] text-[#2B2520] rounded-lg border-2 border-[#2B2520] font-retro-heading transition-colors"
                   >
-                    Reset to Local Mode
+                    {testing ? 'Testing Connection...' : '🔍 Test Database Connection'}
                   </button>
-                )}
+                  {isSupabaseConfigured() && (
+                    <button
+                      type="button"
+                      onClick={handleClear}
+                      className="px-3 py-1.5 text-xs font-bold text-[#C84432] hover:bg-[#FADED9] rounded-lg transition-colors font-retro-heading"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+
                 <div className="flex items-center gap-3 ml-auto">
                   <button
                     type="button"

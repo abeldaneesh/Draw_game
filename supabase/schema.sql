@@ -65,21 +65,26 @@ ALTER TABLE public.rooms ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.players ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.guesses ENABLE ROW LEVEL SECURITY;
 
--- ANONYMOUS POLICIES (Allow public reading & creation for casual gaming)
-CREATE POLICY "Allow public select on rooms" ON public.rooms FOR SELECT USING (true);
-CREATE POLICY "Allow public insert on rooms" ON public.rooms FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update on rooms" ON public.rooms FOR UPDATE USING (true);
+-- ANONYMOUS POLICIES (Allow public access for casual room creation and gameplay)
+DROP POLICY IF EXISTS "Allow public select on rooms" ON public.rooms;
+DROP POLICY IF EXISTS "Allow public insert on rooms" ON public.rooms;
+DROP POLICY IF EXISTS "Allow public update on rooms" ON public.rooms;
+DROP POLICY IF EXISTS "Allow public select on players" ON public.players;
+DROP POLICY IF EXISTS "Allow public insert on players" ON public.players;
+DROP POLICY IF EXISTS "Allow public update on players" ON public.players;
+DROP POLICY IF EXISTS "Allow public delete on players" ON public.players;
+DROP POLICY IF EXISTS "Allow public select on guesses" ON public.guesses;
+DROP POLICY IF EXISTS "Allow public insert on guesses" ON public.guesses;
+DROP POLICY IF EXISTS "Allow all on rooms" ON public.rooms;
+DROP POLICY IF EXISTS "Allow all on players" ON public.players;
+DROP POLICY IF EXISTS "Allow all on guesses" ON public.guesses;
 
-CREATE POLICY "Allow public select on players" ON public.players FOR SELECT USING (true);
-CREATE POLICY "Allow public insert on players" ON public.players FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update on players" ON public.players FOR UPDATE USING (true);
-CREATE POLICY "Allow public delete on players" ON public.players FOR DELETE USING (true);
-
-CREATE POLICY "Allow public select on guesses" ON public.guesses FOR SELECT USING (true);
-CREATE POLICY "Allow public insert on guesses" ON public.guesses FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow all on rooms" ON public.rooms FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all on players" ON public.players FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all on guesses" ON public.guesses FOR ALL USING (true) WITH CHECK (true);
 
 -- REALTIME PUBLICATION SETUP
--- Make sure to enable replication for realtime subscriptions
+-- Enable replication for realtime subscriptions
 ALTER PUBLICATION supabase_realtime ADD TABLE public.rooms;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.players;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.guesses;
